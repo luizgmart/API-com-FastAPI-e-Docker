@@ -1,0 +1,57 @@
+from fastapi import FastAPI, Query, HTTPException
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from fastapi_pagination import PaginationParams, Page
+from fastapi_pagination.ext.sqlalchemy import paginate
+
+Base = declarative_base()
+
+class Atleta(Base):
+    __tablename__ = "atletas"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, index=True)
+    cpf = Column(String, unique=True, index=True)
+    centro_treinamento = Column(String)
+    categoria = Column(String)
+
+# Configuração do SQLAlchemy
+SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
+Base.metadata.create_all(bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Configuração do FastAPI
+app = FastAPI()
+
+# Definição dos endpoints
+@app.post("/atletas/")
+async def create_atleta(nome: str, cpf: str, centro_treinamento: str, categoria: str):
+    db = SessionLocal()
+    try:
+        atleta = Atleta(nome=nome, cpf=cpf, centro_treinamento=centro_treinamento, categoria=categoria)
+        db.add(atleta)
+        db.commit()
+        return {"message": "Atleta criado com sucesso"}
+    except Exception as e:
+        db.rollback()
+        if "UNIQUE constraint failed" in str(e):
+            raise HTTPException(status_code=303, detail=f"Já existe um atleta cadastrado com o cpf: {cpf}")
+        else:
+            raise HTTPException(status_code=500, detail="Erro interno do servidor")
+
+@app.get("/atletas/", response_model=Page[Atleta])
+async def get_all_atletas(nome: str = None, cpf: str = None, pagination: PaginationParams = None):
+    db = SessionLocal()
+    query = db.query(Atleta)
+    if nome:
+        query = query.filter(Atleta.nome == nome)
+    if cpf:
+        query = query.filter(Atleta.cpf == cpf)
+    
+    return paginate(query, pagination)
+
+# Execução do aplicativo
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
